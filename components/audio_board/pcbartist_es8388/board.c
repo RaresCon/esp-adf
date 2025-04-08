@@ -25,6 +25,7 @@
 #include "esp_log.h"
 #include "board.h"
 #include "audio_mem.h"
+#include "periph_button.h"
 
 static const char *TAG = "AUDIO_BOARD";
 
@@ -49,6 +50,19 @@ audio_hal_handle_t audio_board_codec_init(void)
     audio_hal_handle_t codec_hal = audio_hal_init(&audio_codec_cfg, &AUDIO_CODEC_ES8388_DEFAULT_HANDLE);
     AUDIO_NULL_CHECK(TAG, codec_hal, return NULL);
     return codec_hal;
+}
+
+esp_err_t audio_board_key_init(esp_periph_set_handle_t set)
+{
+    periph_button_cfg_t btn_cfg = {
+        .gpio_mask = (1ULL << get_input_volup_id()) |
+                     (1ULL << get_input_voldown_id()) |
+                     (1ULL << get_input_play_id()),
+    };
+
+    esp_periph_handle_t button_handle = periph_button_init(&btn_cfg);
+    AUDIO_NULL_CHECK(TAG, button_handle, return ESP_ERR_ADF_MEMORY_LACK);
+    return esp_periph_start(set, button_handle);
 }
 
 audio_board_handle_t audio_board_get_handle(void)

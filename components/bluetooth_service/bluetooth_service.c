@@ -614,12 +614,12 @@ esp_err_t bluetooth_service_start(bluetooth_service_cfg_t *config)
     }
 
     if (config->device_name) {
-        esp_bt_dev_set_device_name(config->device_name);
+        esp_bt_gap_set_device_name(config->device_name);
     } else {
         if (config->mode == BLUETOOTH_A2DP_SINK) {
-            esp_bt_dev_set_device_name("ESP-ADF-SPEAKER");
+            esp_bt_gap_set_device_name("ESP-ADF-SPEAKER");
         } else {
-            esp_bt_dev_set_device_name("ESP-ADF-SOURCE");
+            esp_bt_gap_set_device_name("ESP-ADF-SOURCE");
         }
     }
 

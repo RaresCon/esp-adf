@@ -29,6 +29,40 @@
 static const char *TAG = "BLUETOOTH_EXAMPLE";
 static esp_periph_handle_t bt_periph = NULL;
 
+static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_service_event_t *evt, void *ctx)
+{
+    if (evt->type == INPUT_KEY_SERVICE_ACTION_CLICK_RELEASE) {
+        ESP_LOGI(TAG, "[ * ] input key id is %d", (int)evt->data);
+        switch ((int)evt->data) {
+            case INPUT_KEY_USER_ID_PLAY:
+                ESP_LOGI(TAG, "[ * ] [Play] play");
+                periph_bt_play(bt_periph);
+                break;
+            case INPUT_KEY_USER_ID_VOLUP:
+                ESP_LOGI(TAG, "[ * ] [long Vol+] Vol+");
+                periph_bt_volume_up(bt_periph);
+                break;
+            case INPUT_KEY_USER_ID_VOLDOWN:
+                ESP_LOGI(TAG, "[ * ] [long Vol-] Vol-");
+                periph_bt_volume_down(bt_periph);
+                break;
+        }
+    } else if (evt->type == INPUT_KEY_SERVICE_ACTION_PRESS_RELEASE) {
+        ESP_LOGI(TAG, "[ * ] input key id is %d", (int)evt->data);
+        switch ((int)evt->data) {
+            case INPUT_KEY_USER_ID_VOLUP:
+                ESP_LOGI(TAG, "[ * ] [long Vol+] next");
+                periph_bt_avrc_next(bt_periph);
+                break;
+            case INPUT_KEY_USER_ID_VOLDOWN:
+                ESP_LOGI(TAG, "[ * ] [long Vol-] Previous");
+                periph_bt_avrc_prev(bt_periph);
+                break;
+        }
+    }
+    return ESP_OK;
+}
+
 void app_main(void)
 {
     audio_pipeline_handle_t pipeline;
@@ -55,11 +89,7 @@ void app_main(void)
 
     esp_bt_gap_set_device_name("ESP_SINK_STREAM_DEMO");
 
-#if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0))
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-#else
-    esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE);
-#endif
 
     ESP_LOGI(TAG, "[ 2 ] Start codec chip");
     audio_board_handle_t board_handle = audio_board_init();
@@ -93,31 +123,27 @@ void app_main(void)
     audio_pipeline_register(pipeline, i2s_stream_writer, "i2s");
 
     ESP_LOGI(TAG, "[4.3] Link it together [Bluetooth]-->bt_stream_reader-->i2s_stream_writer-->[codec_chip]");
-#if (CONFIG_ESP_LYRATD_MSC_V2_1_BOARD || CONFIG_ESP_LYRATD_MSC_V2_2_BOARD)
-    rsp_filter_cfg_t rsp_cfg = DEFAULT_RESAMPLE_FILTER_CONFIG();
-    rsp_cfg.src_rate = 44100;
-    rsp_cfg.src_ch = 2;
-    rsp_cfg.dest_rate = 48000;
-    rsp_cfg.dest_ch = 2;
-    rsp_cfg.task_prio = 19;
-    audio_element_handle_t filter = rsp_filter_init(&rsp_cfg);
-    audio_pipeline_register(pipeline, filter, "filter");
-    i2s_stream_set_clk(i2s_stream_writer, 48000, 16, 2);
-    const char *link_tag[3] = {"bt", "filter", "i2s"};
-    audio_pipeline_link(pipeline, &link_tag[0], 3);
-#else
+
     const char *link_tag[2] = {"bt", "i2s"};
     audio_pipeline_link(pipeline, &link_tag[0], 2);
-#endif
 
     ESP_LOGI(TAG, "[ 5 ] Initialize peripherals");
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
 
-    ESP_LOGI(TAG, "[5.1] Create Bluetooth peripheral");
+    ESP_LOGI(TAG, "[ 5.1 ] Create and start input key service");
+    input_key_service_info_t input_key_info[] = INPUT_KEY_DEFAULT_INFO();
+    input_key_service_cfg_t input_cfg = INPUT_KEY_SERVICE_DEFAULT_CONFIG();
+    input_cfg.handle = set;
+
+    periph_service_handle_t input_ser = input_key_service_create(&input_cfg);
+    input_key_service_add_key(input_ser, input_key_info, INPUT_KEY_NUM);
+    periph_service_set_callback(input_ser, input_key_service_cb, NULL);
+
+    ESP_LOGI(TAG, "[5.2] Create Bluetooth peripheral");
     bt_periph = bt_create_periph();
 
-    ESP_LOGI(TAG, "[5.2] Start all peripherals");
+    ESP_LOGI(TAG, "[5.3] Start all peripherals");
     esp_periph_start(set, bt_periph);
 
     ESP_LOGI(TAG, "[ 6 ] Set up  event listener");
@@ -148,10 +174,7 @@ void app_main(void)
                      music_info.sample_rates, music_info.bits, music_info.channels);
 
             audio_element_set_music_info(i2s_stream_writer, music_info.sample_rates, music_info.channels, music_info.bits);
-#if (CONFIG_ESP_LYRATD_MSC_V2_1_BOARD || CONFIG_ESP_LYRATD_MSC_V2_2_BOARD)
-#else
             i2s_stream_set_clk(i2s_stream_writer, music_info.sample_rates, music_info.bits, music_info.channels);
-#endif
             continue;
         }
 
@@ -182,13 +205,11 @@ void app_main(void)
     /* Release all resources */
     audio_pipeline_unregister(pipeline, bt_stream_reader);
     audio_pipeline_unregister(pipeline, i2s_stream_writer);
-#if (CONFIG_ESP_LYRATD_MSC_V2_1_BOARD || CONFIG_ESP_LYRATD_MSC_V2_2_BOARD)
-    audio_pipeline_unregister(pipeline, filter);
-    audio_element_deinit(filter);
-#endif
+
     audio_pipeline_deinit(pipeline);
     audio_element_deinit(bt_stream_reader);
     audio_element_deinit(i2s_stream_writer);
+    periph_service_destroy(input_ser);
     esp_periph_set_destroy(set);
     esp_bluedroid_disable();
     esp_bluedroid_deinit();

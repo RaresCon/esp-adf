@@ -52,4 +52,31 @@ extern audio_hal_func_t AUDIO_CODEC_ES8388_DEFAULT_HANDLE;
         },                                              \
 };
 
+/**
+ * @brief Button Function Definition
+ */
+#define FUNC_BUTTON_EN            (1)
+#define INPUT_KEY_NUM             3
+#define BUTTON_VPN_ID             GPIO_NUM_32
+#define BUTTON_VMP_ID             GPIO_NUM_33
+#define BUTTON_DP_ID              GPIO_NUM_25
+
+#define INPUT_KEY_DEFAULT_INFO() {                      \
+     {                                                  \
+        .type = PERIPH_ID_BUTTON,                       \
+        .user_id = INPUT_KEY_USER_ID_VOLUP,             \
+        .act_id = BUTTON_VPN_ID,                        \
+    },                                                  \
+    {                                                   \
+        .type = PERIPH_ID_BUTTON,                       \
+        .user_id = INPUT_KEY_USER_ID_VOLDOWN,           \
+        .act_id = BUTTON_VMP_ID,                        \
+    },                                                  \
+    {                                                   \
+        .type = PERIPH_ID_BUTTON,                       \
+        .user_id = INPUT_KEY_USER_ID_SET,               \
+        .act_id = BUTTON_DP_ID,                         \
+    },                                                  \
+}
+
 #endif
