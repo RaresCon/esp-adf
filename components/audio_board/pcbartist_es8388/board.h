@@ -66,6 +66,8 @@ audio_hal_handle_t audio_board_codec_init(void);
  */
 audio_board_handle_t audio_board_get_handle(void);
 
+esp_err_t audio_board_key_init(esp_periph_set_handle_t set);
+
 /**
  * @brief Uninitialize the audio board
  *

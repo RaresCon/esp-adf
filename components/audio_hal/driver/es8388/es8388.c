@@ -248,9 +248,6 @@ esp_err_t es8388_deinit(void)
     int res = 0;
     res = es_write_reg(ES8388_ADDR, ES8388_CHIPPOWER, 0xFF);  //reset and stop es8388
     i2c_bus_delete(i2c_handle);
-#ifdef CONFIG_ESP_LYRAT_V4_3_BOARD
-    headphone_detect_deinit();
-#endif
 
     audio_codec_volume_deinit(dac_vol_handle);
     return res;
@@ -264,9 +261,6 @@ esp_err_t es8388_deinit(void)
 esp_err_t es8388_init(audio_hal_codec_config_t *cfg)
 {
     int res = 0;
-#ifdef CONFIG_ESP_LYRAT_V4_3_BOARD
-    headphone_detect_init(get_headphone_detect_gpio());
-#endif
 
     res = i2c_init(); // ESP32 in master mode
 
@@ -285,7 +279,7 @@ esp_err_t es8388_init(audio_hal_codec_config_t *cfg)
     /* dac */
     res |= es_write_reg(ES8388_ADDR, ES8388_DACPOWER, 0xC0);  //disable DAC and disable Lout/Rout/1/2
     res |= es_write_reg(ES8388_ADDR, ES8388_CONTROL1, 0x12);  //Enfr=0,Play&Record Mode,(0x17-both of mic&paly)
-//    res |= es_write_reg(ES8388_ADDR, ES8388_CONTROL2, 0);  //LPVrefBuf=0,Pdn_ana=0
+    // res |= es_write_reg(ES8388_ADDR, ES8388_CONTROL2, 0);  //LPVrefBuf=0,Pdn_ana=0
     res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL1, 0x18);//1a 0x18:16bit iis , 0x00:24
     res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL2, 0x02);  //DACFsMode,SINGLE SPEED; DACFsRatio,256
     res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL16, 0x00); // 0x00 audio on LIN1&RIN1,  0x09 LIN2&RIN2
@@ -298,7 +292,7 @@ esp_err_t es8388_init(audio_hal_codec_config_t *cfg)
     res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL25, 0x1E);
     res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL26, 0);
     res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL27, 0);
-    // res |= es8388_set_adc_dac_volume(ES_MODULE_DAC, 0, 0);       // 0db
+
     int tmp = 0;
     if (AUDIO_HAL_DAC_OUTPUT_LINE2 == cfg->dac_output) {
         tmp = DAC_OUTPUT_LOUT1 | DAC_OUTPUT_ROUT1;
@@ -308,6 +302,7 @@ esp_err_t es8388_init(audio_hal_codec_config_t *cfg)
         tmp = DAC_OUTPUT_LOUT1 | DAC_OUTPUT_LOUT2 | DAC_OUTPUT_ROUT1 | DAC_OUTPUT_ROUT2;
     }
     res |= es_write_reg(ES8388_ADDR, ES8388_DACPOWER, tmp);  //0x3c Enable DAC and Enable Lout/Rout/1/2
+
     /* adc */
     res |= es_write_reg(ES8388_ADDR, ES8388_ADCPOWER, 0xFF);
     res |= es_write_reg(ES8388_ADDR, ES8388_ADCCONTROL1, 0xbb); // MIC Left and Right channel PGA gain
@@ -319,6 +314,7 @@ esp_err_t es8388_init(audio_hal_codec_config_t *cfg)
     } else {
         tmp = ADC_INPUT_DIFFERENCE;
     }
+
     res |= es_write_reg(ES8388_ADDR, ES8388_ADCCONTROL2, tmp);  //0x00 LINSEL & RINSEL, LIN1/RIN1 as ADC Input; DSSEL,use one DS Reg11; DSR, LINPUT1-RINPUT1
     res |= es_write_reg(ES8388_ADDR, ES8388_ADCCONTROL3, 0x02);
     res |= es_write_reg(ES8388_ADDR, ES8388_ADCCONTROL4, 0x0c); // 16 Bits length and I2S serial audio data format
@@ -326,17 +322,6 @@ esp_err_t es8388_init(audio_hal_codec_config_t *cfg)
     //ALC for Microphone
     res |= es8388_set_adc_dac_volume(ES_MODULE_ADC, 0, 0);      // 0db
     res |= es_write_reg(ES8388_ADDR, ES8388_ADCPOWER, 0x09);    // Power on ADC, enable LIN&RIN, power off MICBIAS, and set int1lp to low power mode
-    
-    /* es8388 PA gpio_config */
-    gpio_config_t  io_conf;
-    memset(&io_conf, 0, sizeof(io_conf));
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = BIT64(get_pa_enable_gpio());
-    io_conf.pull_down_en = 0;
-    io_conf.pull_up_en = 0;
-    gpio_config(&io_conf);
-    /* enable es8388 PA */
-    es8388_pa_power(true);
 
     codec_dac_volume_config_t vol_cfg = ES8388_DAC_VOL_CFG_DEFAULT();
     dac_vol_handle = audio_codec_volume_init(&vol_cfg);
@@ -387,6 +372,7 @@ esp_err_t es8388_set_voice_volume(int volume)
 {
     esp_err_t res = ESP_OK;
     uint8_t reg = 0;
+
     reg = audio_codec_get_dac_reg_value(dac_vol_handle, volume);
     res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL5, reg);
     res |= es_write_reg(ES8388_ADDR, ES8388_DACCONTROL4, reg);

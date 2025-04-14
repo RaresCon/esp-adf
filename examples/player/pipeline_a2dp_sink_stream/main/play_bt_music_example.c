@@ -99,22 +99,16 @@ void app_main(void)
     audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
     pipeline = audio_pipeline_init(&pipeline_cfg);
 
-    audio_hal_set_volume(board_handle->audio_hal, 100);
-
     ESP_LOGI(TAG, "[4] Create i2s stream to write data to codec chip");
     i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT();
     i2s_cfg.type = AUDIO_STREAM_WRITER;
     i2s_stream_writer = i2s_stream_init(&i2s_cfg);
 
-    audio_hal_set_volume(board_handle->audio_hal, 40);
-
     ESP_LOGI(TAG, "[4.1] Get Bluetooth stream");
     a2dp_stream_config_t a2dp_config = {
         .type = AUDIO_STREAM_READER,
         .user_callback = {0},
-#if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0))
         .audio_hal = board_handle->audio_hal,
-#endif
     };
     bt_stream_reader = a2dp_stream_init(&a2dp_config);
 
@@ -130,6 +124,7 @@ void app_main(void)
     ESP_LOGI(TAG, "[ 5 ] Initialize peripherals");
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
     esp_periph_set_handle_t set = esp_periph_set_init(&periph_cfg);
+    audio_board_key_init(set);
 
     ESP_LOGI(TAG, "[ 5.1 ] Create and start input key service");
     input_key_service_info_t input_key_info[] = INPUT_KEY_DEFAULT_INFO();
@@ -157,6 +152,7 @@ void app_main(void)
     audio_pipeline_run(pipeline);
 
     ESP_LOGI(TAG, "[ 8 ] Listen for all pipeline events");
+
     while (1) {
         audio_event_iface_msg_t msg;
         esp_err_t ret = audio_event_iface_listen(evt, &msg, portMAX_DELAY);

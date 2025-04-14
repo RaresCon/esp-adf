@@ -31,7 +31,7 @@
 #define CODEC_ADC_I2S_PORT        ((i2s_port_t)0)
 // #define CODEC_ADC_BITS_PER_SAMPLE ((i2s_data_bit_width_t)16) /* 16bit */
 // #define CODEC_ADC_SAMPLE_RATE     (48000)
-#define BOARD_PA_GAIN             (5)
+#define BOARD_PA_GAIN             (10)
 
 #define ESP_SD_PIN_CLK              -1
 #define ESP_SD_PIN_CMD              -1
@@ -57,9 +57,9 @@ extern audio_hal_func_t AUDIO_CODEC_ES8388_DEFAULT_HANDLE;
  */
 #define FUNC_BUTTON_EN            (1)
 #define INPUT_KEY_NUM             3
+#define BUTTON_DP_ID              GPIO_NUM_25
 #define BUTTON_VPN_ID             GPIO_NUM_32
 #define BUTTON_VMP_ID             GPIO_NUM_33
-#define BUTTON_DP_ID              GPIO_NUM_25
 
 #define INPUT_KEY_DEFAULT_INFO() {                      \
      {                                                  \
@@ -74,7 +74,7 @@ extern audio_hal_func_t AUDIO_CODEC_ES8388_DEFAULT_HANDLE;
     },                                                  \
     {                                                   \
         .type = PERIPH_ID_BUTTON,                       \
-        .user_id = INPUT_KEY_USER_ID_SET,               \
+        .user_id = INPUT_KEY_USER_ID_PLAY,              \
         .act_id = BUTTON_DP_ID,                         \
     },                                                  \
 }

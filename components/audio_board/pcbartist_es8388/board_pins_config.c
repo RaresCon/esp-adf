@@ -82,5 +82,5 @@ int8_t get_input_play_id(void)
 
 int8_t get_pa_enable_gpio(void)
 {
-    return 0;
+    return 5;
 }
