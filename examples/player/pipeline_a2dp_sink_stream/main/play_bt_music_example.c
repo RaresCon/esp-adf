@@ -26,38 +26,65 @@
 #include "board.h"
 #include "a2dp_stream.h"
 
-static const char *TAG = "BLUETOOTH_EXAMPLE";
+static const char *TAG = "BT_SINK";
 static esp_periph_handle_t bt_periph = NULL;
+static bool playStatus = true;
+
+void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
+{
+    switch (event) {
+    case ESP_A2D_CONNECTION_STATE_EVT:
+        ESP_LOGI(TAG, "A2DP connection state: %d", param->conn_stat.state);
+        break;
+    case ESP_A2D_AUDIO_STATE_EVT:
+        switch (param->audio_stat.state) {
+        case ESP_A2D_AUDIO_STATE_STARTED:
+            ESP_LOGI(TAG, "Audio streaming STARTED");
+            playStatus = true;
+            break;
+        case ESP_A2D_AUDIO_STATE_STOPPED:
+            ESP_LOGI(TAG, "Audio streaming STOPPED");
+            playStatus = false;
+            break;
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+}
 
 static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_service_event_t *evt, void *ctx)
 {
     if (evt->type == INPUT_KEY_SERVICE_ACTION_CLICK_RELEASE) {
         ESP_LOGI(TAG, "[ * ] input key id is %d", (int)evt->data);
         switch ((int)evt->data) {
-            case INPUT_KEY_USER_ID_PLAY:
-                ESP_LOGI(TAG, "[ * ] [Play] play");
-                periph_bt_play(bt_periph);
-                break;
-            case INPUT_KEY_USER_ID_VOLUP:
-                ESP_LOGI(TAG, "[ * ] [long Vol+] Vol+");
-                periph_bt_volume_up(bt_periph);
-                break;
-            case INPUT_KEY_USER_ID_VOLDOWN:
-                ESP_LOGI(TAG, "[ * ] [long Vol-] Vol-");
-                periph_bt_volume_down(bt_periph);
-                break;
+        case INPUT_KEY_USER_ID_PLAY:
+            ESP_LOGI(TAG, "[ * ] [Play] play/pause");
+            playStatus ? periph_bt_pause(bt_periph) : periph_bt_play(bt_periph);
+            playStatus = !playStatus;
+            break;
+        case INPUT_KEY_USER_ID_VOLUP:
+            ESP_LOGI(TAG, "[ * ] [Vol+] Vol+");
+            periph_bt_volume_up(bt_periph);
+            break;
+        case INPUT_KEY_USER_ID_VOLDOWN:
+            ESP_LOGI(TAG, "[ * ] [Vol-] Vol-");
+            periph_bt_volume_down(bt_periph);
+            break;
         }
     } else if (evt->type == INPUT_KEY_SERVICE_ACTION_PRESS_RELEASE) {
         ESP_LOGI(TAG, "[ * ] input key id is %d", (int)evt->data);
         switch ((int)evt->data) {
-            case INPUT_KEY_USER_ID_VOLUP:
-                ESP_LOGI(TAG, "[ * ] [long Vol+] next");
-                periph_bt_avrc_next(bt_periph);
-                break;
-            case INPUT_KEY_USER_ID_VOLDOWN:
-                ESP_LOGI(TAG, "[ * ] [long Vol-] Previous");
-                periph_bt_avrc_prev(bt_periph);
-                break;
+        case INPUT_KEY_USER_ID_VOLUP:
+            ESP_LOGI(TAG, "[ * ] [long Vol+] next");
+            periph_bt_avrc_next(bt_periph);
+            break;
+        case INPUT_KEY_USER_ID_VOLDOWN:
+            ESP_LOGI(TAG, "[ * ] [long Vol-] Previous");
+            periph_bt_avrc_prev(bt_periph);
+            break;
         }
     }
     return ESP_OK;
@@ -87,7 +114,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_bluedroid_init());
     ESP_ERROR_CHECK(esp_bluedroid_enable());
 
-    esp_bt_gap_set_device_name("ESP_SINK_STREAM_DEMO");
+    esp_bt_gap_set_device_name("ESP32-AudioBoard");
 
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 
@@ -107,7 +134,9 @@ void app_main(void)
     ESP_LOGI(TAG, "[4.1] Get Bluetooth stream");
     a2dp_stream_config_t a2dp_config = {
         .type = AUDIO_STREAM_READER,
-        .user_callback = {0},
+        .user_callback = {
+            .user_a2d_cb = bt_app_a2d_cb,
+        },
         .audio_hal = board_handle->audio_hal,
     };
     bt_stream_reader = a2dp_stream_init(&a2dp_config);
@@ -153,7 +182,7 @@ void app_main(void)
 
     ESP_LOGI(TAG, "[ 8 ] Listen for all pipeline events");
 
-    while (1) {
+    for (;;) {
         audio_event_iface_msg_t msg;
         esp_err_t ret = audio_event_iface_listen(evt, &msg, portMAX_DELAY);
         if (ret != ESP_OK) {
@@ -161,16 +190,26 @@ void app_main(void)
             continue;
         }
 
-        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void *) bt_stream_reader
-            && msg.cmd == AEL_MSG_CMD_REPORT_MUSIC_INFO) {
+        ESP_LOGI(TAG, "[ * ] Event source type: %d", msg.source_type);
+
+        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void *) bt_stream_reader) {
             audio_element_info_t music_info = {0};
-            audio_element_getinfo(bt_stream_reader, &music_info);
 
-            ESP_LOGI(TAG, "[ * ] Receive music info from Bluetooth, sample_rates=%d, bits=%d, ch=%d",
-                     music_info.sample_rates, music_info.bits, music_info.channels);
+            switch (msg.cmd) {
+            case AEL_MSG_CMD_REPORT_MUSIC_INFO:
+                audio_element_getinfo(bt_stream_reader, &music_info);
 
-            audio_element_set_music_info(i2s_stream_writer, music_info.sample_rates, music_info.channels, music_info.bits);
-            i2s_stream_set_clk(i2s_stream_writer, music_info.sample_rates, music_info.bits, music_info.channels);
+                ESP_LOGI(TAG, "[ * ] Receive music info from Bluetooth, sample_rates=%d, bits=%d, ch=%d",
+                        music_info.sample_rates, music_info.bits, music_info.channels);
+
+                audio_element_set_music_info(i2s_stream_writer, music_info.sample_rates,
+                                        music_info.channels, music_info.bits);
+                i2s_stream_set_clk(i2s_stream_writer, music_info.sample_rates,
+                                music_info.bits, music_info.channels);
+                break;
+            default:
+                break;
+            }
             continue;
         }
 

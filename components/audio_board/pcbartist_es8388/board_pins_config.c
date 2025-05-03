@@ -31,7 +31,7 @@
 #include "soc/io_mux_reg.h"
 #include "soc/soc_caps.h"
 
-static const char *TAG = "ES8388";
+static const char *TAG = "ESP32-AudioBoard";
 
 esp_err_t get_i2c_pins(i2c_port_t port, i2c_config_t *i2c_config)
 {
