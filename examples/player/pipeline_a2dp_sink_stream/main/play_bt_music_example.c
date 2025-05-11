@@ -6,6 +6,7 @@
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
+#include <string.h>
 #include "esp_log.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
@@ -14,6 +15,11 @@
 #include "esp_a2dp_api.h"
 #include "esp_avrc_api.h"
 #include "esp_peripherals.h"
+#include "esp_sleep.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
+#include "esp_adc/adc_oneshot.h"
+#include "driver/rtc_io.h"
 
 #include "nvs_flash.h"
 #include "audio_element.h"
@@ -21,16 +27,39 @@
 #include "audio_event_iface.h"
 #include "i2s_stream.h"
 #include "input_key_service.h"
+#include "battery_service.h"
 #include "filter_resample.h"
 #include "periph_touch.h"
 #include "board.h"
+#include "audio_mem.h"
 #include "a2dp_stream.h"
 
 static const char *TAG = "BT_SINK";
 static esp_periph_handle_t bt_periph = NULL;
 static bool playStatus = true;
+static adc_oneshot_unit_handle_t adc_handle;
+static adc_cali_handle_t cali_handle;
+static audio_board_handle_t board_handle;
 
-void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
+static void go_in_deepsleep(void)
+{
+    gpio_num_t ds_wakeup_gpio = get_input_play_id();
+
+    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_DECODE, AUDIO_HAL_CTRL_STOP);
+
+    gpio_reset_pin(ds_wakeup_gpio);
+    rtc_gpio_isolate(GPIO_NUM_12);
+
+    gpio_pullup_en(ds_wakeup_gpio);
+    gpio_pulldown_dis(ds_wakeup_gpio);
+
+    esp_sleep_enable_ext0_wakeup(ds_wakeup_gpio, 0);
+
+    ESP_LOGI(TAG, "Going into deepsleep, press button to wake up");
+    esp_deep_sleep_start();
+}
+
+static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
 {
     switch (event) {
     case ESP_A2D_CONNECTION_STATE_EVT:
@@ -85,8 +114,92 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
             ESP_LOGI(TAG, "[ * ] [long Vol-] Previous");
             periph_bt_avrc_prev(bt_periph);
             break;
+        case INPUT_KEY_USER_ID_PLAY:
+            go_in_deepsleep();
+            break;
         }
     }
+    return ESP_OK;
+}
+
+static esp_err_t battery_service_cb(periph_service_handle_t handle,
+    periph_service_event_t *evt, void *ctx)
+{
+    if (evt->type == BAT_SERV_EVENT_VOL_REPORT) {
+        int voltage = (int)evt->data;
+        ESP_LOGI(TAG, "got voltage %d", voltage);
+    } else if (evt->type == BAT_SERV_EVENT_BAT_FULL) {
+        int voltage = (int)evt->data;
+        ESP_LOGW(TAG, "battery full %d", voltage);
+    } else if (evt->type == BAT_SERV_EVENT_BAT_LOW) {
+        int voltage = (int)evt->data;
+        ESP_LOGE(TAG, "battery low %d", voltage);
+    } else {
+        ESP_LOGW(TAG, "unrecognized event %d", evt->type);
+    }
+    return ESP_OK;
+}
+
+static bool adc_init(void *user_data)
+{
+    adc_cali_line_fitting_config_t adc_cfg = {
+        .unit_id = ADC_UNIT_1,
+        .bitwidth = ADC_WIDTH_12Bit,
+        .atten = ADC_ATTEN_DB_12,
+        .default_vref = ADC_CALI_LINE_FITTING_EFUSE_VAL_DEFAULT_VREF
+    };
+    adc_oneshot_unit_init_cfg_t init_config = {
+        .unit_id = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    adc_oneshot_chan_cfg_t config = {
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+
+    adc_oneshot_new_unit(&init_config, &adc_handle);
+    adc_cali_create_scheme_line_fitting(&adc_cfg, &cali_handle);
+    adc_oneshot_config_channel(adc_handle, ADC_CHANNEL_7, &config);
+
+    return true;
+}
+
+static bool adc_deinit(void *user_data)
+{
+    return true;
+}
+
+static int batt_vol_read(void *user_data)
+{
+    int raw_adc_value, voltage = 0;
+
+    adc_oneshot_read(adc_handle, ADC_CHANNEL_7, &raw_adc_value);
+    adc_cali_raw_to_voltage(cali_handle, raw_adc_value, &voltage);
+
+    return voltage;
+}
+
+static esp_err_t battery_monitor_init(void)
+{
+    vol_monitor_param_t *vol_monitor_cfg = audio_calloc(1, sizeof(vol_monitor_param_t));
+    void *data = audio_calloc(1, 1);
+
+    vol_monitor_cfg->init = adc_init;
+    vol_monitor_cfg->deinit = adc_deinit;
+    vol_monitor_cfg->vol_get = batt_vol_read;
+    vol_monitor_cfg->read_freq = 60;
+    vol_monitor_cfg->report_freq = 1;
+    vol_monitor_cfg->vol_full_threshold = FULL_BATT_VOLTAGE;
+    vol_monitor_cfg->vol_low_threshold = LOW_BATT_VOLTAGE;
+    vol_monitor_cfg->user_data = data;
+
+    battery_service_config_t config = BATTERY_SERVICE_DEFAULT_CONFIG();
+    config.evt_cb = battery_service_cb;
+    config.vol_monitor = vol_monitor_create(vol_monitor_cfg);
+    config.extern_stack = false;
+    periph_service_handle_t battery_service = battery_service_create(&config);
+
+    periph_service_start(battery_service);
+
     return ESP_OK;
 }
 
@@ -102,6 +215,8 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
     }
+
+    rtc_gpio_deinit(get_input_play_id());
 
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set(TAG, ESP_LOG_DEBUG);
@@ -119,7 +234,7 @@ void app_main(void)
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 
     ESP_LOGI(TAG, "[ 2 ] Start codec chip");
-    audio_board_handle_t board_handle = audio_board_init();
+    board_handle = audio_board_init();
     audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_DECODE, AUDIO_HAL_CTRL_START);
 
     ESP_LOGI(TAG, "[ 3 ] Create audio pipeline for playback");
@@ -145,7 +260,7 @@ void app_main(void)
     audio_pipeline_register(pipeline, bt_stream_reader, "bt");
     audio_pipeline_register(pipeline, i2s_stream_writer, "i2s");
 
-    ESP_LOGI(TAG, "[4.3] Link it together [Bluetooth]-->bt_stream_reader-->i2s_stream_writer-->[codec_chip]");
+    ESP_LOGI(TAG, "[4.3] Link it together");
 
     const char *link_tag[2] = {"bt", "i2s"};
     audio_pipeline_link(pipeline, &link_tag[0], 2);
@@ -180,7 +295,10 @@ void app_main(void)
     ESP_LOGI(TAG, "[ 7 ] Start audio_pipeline");
     audio_pipeline_run(pipeline);
 
-    ESP_LOGI(TAG, "[ 8 ] Listen for all pipeline events");
+    ESP_LOGI(TAG, "[ 8 ] Start battery monitor");
+    battery_monitor_init();
+
+    ESP_LOGI(TAG, "[ 9 ] Listen for all pipeline events");
 
     for (;;) {
         audio_event_iface_msg_t msg;
@@ -192,7 +310,7 @@ void app_main(void)
 
         ESP_LOGI(TAG, "[ * ] Event source type: %d", msg.source_type);
 
-        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void *) bt_stream_reader) {
+        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void *)bt_stream_reader) {
             audio_element_info_t music_info = {0};
 
             switch (msg.cmd) {
@@ -214,7 +332,7 @@ void app_main(void)
         }
 
         /* Stop when the last pipeline element (i2s_stream_writer in this case) receives stop event */
-        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void *) i2s_stream_writer
+        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void *)i2s_stream_writer
             && msg.cmd == AEL_MSG_CMD_REPORT_STATUS
             && (((int)msg.data == AEL_STATUS_STATE_STOPPED) || ((int)msg.data == AEL_STATUS_STATE_FINISHED))) {
             ESP_LOGW(TAG, "[ * ] Stop event received");

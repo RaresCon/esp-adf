@@ -29,9 +29,13 @@
  * @brief Audio Codec Chip Function Definition
  */
 #define CODEC_ADC_I2S_PORT        ((i2s_port_t)0)
-// #define CODEC_ADC_BITS_PER_SAMPLE ((i2s_data_bit_width_t)16) /* 16bit */
-// #define CODEC_ADC_SAMPLE_RATE     (48000)
 #define BOARD_PA_GAIN             (10)
+
+#define ADC_ATTEN_11db ADC_ATTEN_DB_11
+#define ADC_WIDTH_12Bit ADC_BITWIDTH_12
+#define FULL_BATT_VOLTAGE 2100 // unit: mV
+#define LOW_BATT_VOLTAGE 1750 // unit: mV
+#define BATT_V_SAMPLES_NUM (10)
 
 #define ESP_SD_PIN_CLK              -1
 #define ESP_SD_PIN_CMD              -1
