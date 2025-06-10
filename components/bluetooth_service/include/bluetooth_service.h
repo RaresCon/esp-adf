@@ -143,6 +143,28 @@ esp_err_t periph_bluetooth_pause(esp_periph_handle_t periph);
 esp_err_t periph_bluetooth_stop(esp_periph_handle_t periph);
 
 /**
+ * @brief      Send the AVRC passthrough command (VOLUP) to the Bluetooth device
+ *
+ * @param[in]  periph  The periph
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t periph_bluetooth_vol_up(esp_periph_handle_t periph);
+
+/**
+ * @brief      Send the AVRC passthrough command (VOLUP) to the Bluetooth device
+ *
+ * @param[in]  periph  The periph
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+esp_err_t periph_bluetooth_vol_down(esp_periph_handle_t periph);
+
+/**
  * @brief      Send the AVRC passthrough command (NEXT) to the Bluetooth device
  *
  * @param[in]  periph  The periph

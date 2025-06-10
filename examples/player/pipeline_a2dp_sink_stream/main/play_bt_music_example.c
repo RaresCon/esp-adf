@@ -28,8 +28,6 @@
 #include "i2s_stream.h"
 #include "input_key_service.h"
 #include "battery_service.h"
-#include "filter_resample.h"
-#include "periph_touch.h"
 #include "board.h"
 #include "audio_mem.h"
 #include "a2dp_stream.h"
@@ -45,7 +43,7 @@ static void go_in_deepsleep(void)
 {
     gpio_num_t ds_wakeup_gpio = get_input_play_id();
 
-    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_DECODE, AUDIO_HAL_CTRL_STOP);
+    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_STOP);
 
     gpio_reset_pin(ds_wakeup_gpio);
     rtc_gpio_isolate(GPIO_NUM_12);
@@ -86,7 +84,8 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
 
 static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_service_event_t *evt, void *ctx)
 {
-    if (evt->type == INPUT_KEY_SERVICE_ACTION_CLICK_RELEASE) {
+    switch (evt->type) {
+    case INPUT_KEY_SERVICE_ACTION_CLICK_RELEASE:
         ESP_LOGI(TAG, "[ * ] input key id is %d", (int)evt->data);
         switch ((int)evt->data) {
         case INPUT_KEY_USER_ID_PLAY:
@@ -103,7 +102,8 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
             periph_bt_volume_down(bt_periph);
             break;
         }
-    } else if (evt->type == INPUT_KEY_SERVICE_ACTION_PRESS_RELEASE) {
+        break;
+    case INPUT_KEY_SERVICE_ACTION_PRESS:
         ESP_LOGI(TAG, "[ * ] input key id is %d", (int)evt->data);
         switch ((int)evt->data) {
         case INPUT_KEY_USER_ID_VOLUP:
@@ -114,10 +114,21 @@ static esp_err_t input_key_service_cb(periph_service_handle_t handle, periph_ser
             ESP_LOGI(TAG, "[ * ] [long Vol-] Previous");
             periph_bt_avrc_prev(bt_periph);
             break;
+        default:
+            break;
+        }
+        break;
+    case INPUT_KEY_SERVICE_ACTION_PRESS_RELEASE:
+        switch ((int)evt->data) {
         case INPUT_KEY_USER_ID_PLAY:
             go_in_deepsleep();
             break;
+        default:
+            break;
         }
+        break;
+    default:
+        return ESP_ERR_NOT_SUPPORTED;
     }
     return ESP_OK;
 }
@@ -145,7 +156,7 @@ static bool adc_init(void *user_data)
     adc_cali_line_fitting_config_t adc_cfg = {
         .unit_id = ADC_UNIT_1,
         .bitwidth = ADC_WIDTH_12Bit,
-        .atten = ADC_ATTEN_DB_12,
+        .atten = ADC_ATTEN_DB_6,
         .default_vref = ADC_CALI_LINE_FITTING_EFUSE_VAL_DEFAULT_VREF
     };
     adc_oneshot_unit_init_cfg_t init_config = {
@@ -153,7 +164,7 @@ static bool adc_init(void *user_data)
         .ulp_mode = ADC_ULP_MODE_DISABLE,
     };
     adc_oneshot_chan_cfg_t config = {
-        .bitwidth = ADC_BITWIDTH_12,
+        .bitwidth = ADC_WIDTH_12Bit,
     };
 
     adc_oneshot_new_unit(&init_config, &adc_handle);
@@ -175,7 +186,7 @@ static int batt_vol_read(void *user_data)
     adc_oneshot_read(adc_handle, ADC_CHANNEL_7, &raw_adc_value);
     adc_cali_raw_to_voltage(cali_handle, raw_adc_value, &voltage);
 
-    return voltage;
+    return voltage * 2;
 }
 
 static esp_err_t battery_monitor_init(void)
@@ -186,7 +197,7 @@ static esp_err_t battery_monitor_init(void)
     vol_monitor_cfg->init = adc_init;
     vol_monitor_cfg->deinit = adc_deinit;
     vol_monitor_cfg->vol_get = batt_vol_read;
-    vol_monitor_cfg->read_freq = 60;
+    vol_monitor_cfg->read_freq = 1800;
     vol_monitor_cfg->report_freq = 1;
     vol_monitor_cfg->vol_full_threshold = FULL_BATT_VOLTAGE;
     vol_monitor_cfg->vol_low_threshold = LOW_BATT_VOLTAGE;

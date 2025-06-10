@@ -814,6 +814,16 @@ esp_err_t periph_bluetooth_stop(esp_periph_handle_t periph)
     return err;
 }
 
+esp_err_t periph_bluetooth_vol_up(esp_periph_handle_t periph)
+{
+    return periph_bluetooth_passthrough_cmd(periph, ESP_AVRC_PT_CMD_VOL_UP);
+}
+
+esp_err_t periph_bluetooth_vol_down(esp_periph_handle_t periph)
+{
+    return periph_bluetooth_passthrough_cmd(periph, ESP_AVRC_PT_CMD_VOL_DOWN);
+}
+
 esp_err_t periph_bluetooth_next(esp_periph_handle_t periph)
 {
     return periph_bluetooth_passthrough_cmd(periph, ESP_AVRC_PT_CMD_FORWARD);
